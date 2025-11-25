@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>老板的AI会计 (V5.0)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script> 
+    <style>
+        /* 基础样式和布局 */
+        body { background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+        .page { display: none; flex: 1; flex-direction: column; height: 100%; overflow-y: auto; }
+        .page.active { display: flex; }
+        
+        /* 导航和输入框 */
+        .navbar { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-top: 1px solid #eee; padding: 8px 0; display: flex; justify-content: space-around; padding-bottom: max(8px, env(safe-area-inset-bottom)); z-index: 50; }
+        .nav-item { display: flex; flex-direction: column; align-items: center; color: #9ca3af; font-size: 10px; font-weight: 500; cursor: pointer; width: 33%; }
+        .nav-item.active { color: #10b981; }
+        .nav-item svg { width: 24px; height: 24px; margin-bottom: 2px; }
+        .input-float { position: fixed; bottom: 70px; left: 10px; right: 10px; background: white; padding: 10px; border-radius: 20px; display: flex; gap: 10px; align-items: flex-end; shadow-lg shadow-gray-200/50; z-index: 40; border: 1px solid #f0f0f0; }
+
+        /* 聊天气泡和报表样式 (为简洁省略部分样式，保留核心结构) */
+        .chat-container { flex: 1; padding: 20px; overflow-y: auto; padding-bottom: 90px; }
+        .msg-bubble { max-width: 85%; padding: 12px 16px; border-radius: 18px; margin-bottom: 12px; font-size: 15px; line-height: 1.5; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .msg-user { align-self: flex-end; background-color: #10b981; color: white; border-bottom-right-radius: 4px; margin-left: auto; }
+        .msg-ai { align-self: flex-start; background-color: white; color: #1f2937; border-bottom-left-radius: 4px; }
+        .fin-table { width: 100%; border-collapse: collapse; font-size: 12px; background: white; }
+        .fin-table th { text-align: left; padding: 8px 12px; background: #f9fafb; color: #6b7280; font-weight: 600; border-bottom: 1px solid #e5e7eb; }
+        .fin-table td { padding: 8px 12px; border-bottom: 1px solid #f3f4f6; color: #1f2937; }
+        .fin-total { font-weight: bold; border-top: 2px solid #e5e7eb; background-color: #fffbeb; }
+    </style>
+</head>
+<body>
+
+    <div id="auth-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 z-50 flex items-center justify-center p-4">
+        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-sm text-center">
+            <h2 class="text-2xl font-bold mb-6 text-gray-800">老板，请登录</h2>
+            
+            <button onclick="signInWithProvider('google')" class="w-full mb-3 py-3 rounded-xl bg-blue-600 text-white font-semibold flex items-center justify-center hover:bg-blue-700 transition">
+                <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24"><path d="M12.482 10.375v2.882h5.715c-.292 1.487-1.378 2.9-3.92 2.999-.219.008-.44.01-.661.01-3.565 0-6.46-2.895-6.46-6.46s2.895-6.46 6.46-6.46c1.783 0 3.328.736 4.494 1.847l2.222-2.146c-1.564-1.464-3.662-2.368-6.716-2.368C5.834 3.75 1 8.584 1 14s4.834 10.25 11.25 10.25c7.22 0 10.875-5.068 10.875-10.457 0-.756-.075-1.503-.223-2.228H12.482z"/></svg>
+                使用 Google 登录
+            </button>
+
+            <div class="my-4 text-gray-500 relative">
+                <span class="bg-white px-2 relative z-10">或使用 Email Code</span>
+                <div class="absolute inset-x-0 top-1/2 h-px bg-gray-300 transform -translate-y-1/2"></div>
+            </div>
+
+            <input id="email-input" type="email" placeholder="输入 Email" class="w-full px-4 py-3 border rounded-xl mb-3 focus:ring-green-500 focus:border-green-500" />
+            <button onclick="signInWithEmail()" class="w-full py-3 rounded-xl bg-green-500 text-white font-semibold hover:bg-green-600 transition">
+                获取 Code (发送Magic Link)
+            </button>
+            <p id="email-message" class="text-sm text-yellow-600 mt-3 hidden">Code 已发送，请检查邮件！</p>
+        </div>
+    </div>
+
+    <div id="app-content" class="flex flex-col flex-1 hidden">
+        
+        <div id="page-chat" class="page active">
+            <div id="chatBox" class="chat-container">
+                <div class="msg-bubble msg-ai">
+                    老板好。我是 AI 会计。<br>
+                    你说人话，我做分录。<br>
+                    <span class="text-xs text-gray-400">试试：刚加了300油没给钱记老李账上。</span>
+                </div>
+            </div>
+            <div class="input-float">
+                <textarea id="userInput" rows="1" class="flex-1 bg-gray-50 rounded-xl px-4 py-3 outline-none resize-none text-gray-700 text-base" placeholder="例如：付了房租 5000..."></textarea>
+                <button onclick="sendMessage()" class="bg-green-500 text-white rounded-full w-10 h-10 flex items-center justify-center flex-shrink-0 shadow-md">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"></path></svg>
+                </button>
+            </div>
+        </div>
+
+        <div id="page-dashboard" class="page p-4 pb-24">
+            <h1 class="text-xl font-bold text-gray-900 mb-4">经营概况</h1>
+            <div class="grid grid-cols-2 gap-3 mb-4">
+                <div class="bg-white p-4 rounded-xl shadow-sm"><div class="text-xs text-gray-500 mb-1">本月收入</div><div id="dashboard-income" class="text-xl font-bold text-green-600">¥0.00</div></div>
+                <div class="bg-white p-4 rounded-xl shadow-sm"><div class="text-xs text-gray-500 mb-1">本月支出</div><div id="dashboard-expense" class="text-xl font-bold text-red-600">¥0.00</div></div>
+            </div>
+            <div class="bg-white p-4 rounded-xl shadow-sm h-60 mb-4"><canvas id="mainChart"></canvas></div>
+            <div class="bg-yellow-50 border border-yellow-100 p-4 rounded-xl flex justify-between items-center">
+                <div><div class="font-bold text-yellow-800 text-sm">⚠️ 待处理挂账</div><div id="dashboard-outstanding" class="text-xs text-yellow-600">0 笔</div></div>
+                <div id="dashboard-outstanding-amount" class="text-xl font-bold text-yellow-700">-¥0.00</div>
+            </div>
+        </div>
+
+        <div id="page-pro" class="page p-0 pb-24 bg-white">
+            <div class="sticky top-0 bg-gray-50 border-b px-4 py-3 flex justify-between items-center z-10">
+                <h1 class="text-lg font-bold text-gray-800">财务报表 (标准版)</h1>
+                <button class="text-xs bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">导出 Excel</button>
+            </div>
+            <div class="flex border-b text-sm">
+                <div onclick="switchReport('pl')" class="report-tab px-4 py-3 font-medium text-blue-600 border-b-2 border-blue-600 cursor-pointer">利润表</div>
+                <div onclick="switchReport('bs')" class="report-tab px-4 py-3 font-medium text-gray-500 cursor-pointer">资产负债表</div>
+            </div>
+
+            <div id="report-pl" class="report-content p-4">
+                <div class="border rounded-lg overflow-hidden">
+                    <table class="fin-table">
+                        <thead><tr><th>项目</th><th class="text-right">本月数</th><th class="text-right">本年累计</th></tr></thead>
+                        <tbody>
+                            <tr class="fin-total bg-gray-100"><td>净利润</td><td class="fin-num font-bold text-green-700">8,700.00</td><td class="fin-num font-bold text-green-700">111,800.00</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div id="report-bs" class="report-content p-4 hidden">
+                <div class="border rounded-lg overflow-hidden">
+                    <table class="fin-table">
+                        <thead><tr><th>资产</th><th class="text-right">期末余额</th><th>负债及权益</th><th class="text-right">期末余额</th></tr></thead>
+                        <tbody>
+                            <tr class="fin-total"><td>资产总计</td><td class="fin-num">85,500</td><td>权益总计</td><td class="fin-num">85,500</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="navbar">
+            <div class="nav-item active" onclick="switchTab('chat')">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
+                <span>AI记账</span>
+            </div>
+            <div class="nav-item" onclick="switchTab('dashboard')">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                <span>老板看板</span>
+            </div>
+            <div class="nav-item" onclick="switchTab('pro')">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                <span>专业报表</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ----------------------------------------------------------------------
+        // 1. SUPABASE 配置 (必填!)
+        // ----------------------------------------------------------------------
+        const SUPABASE_URL = 'YOUR_SUPABASE_URL_HERE'; 
+        const SUPABASE_ANON_KEY = 'YOUR_ANON_KEY_HERE'; 
+        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        
+        // ----------------------------------------------------------------------
+        // 2. 核心 UI 元素
+        // ----------------------------------------------------------------------
+        const authModal = document.getElementById('auth-modal');
+        const appContent = document.getElementById('app-content');
+        const emailMessage = document.getElementById('email-message');
+        const chatBox = document.getElementById('chatBox');
+        const userInput = document.getElementById('userInput');
+        let myChart = null; 
+
+        // ----------------------------------------------------------------------
+        // 3. 认证逻辑 (Auth)
+        // ----------------------------------------------------------------------
+        supabase.auth.onAuthStateChange((event, session) => {
+            if (session) {
+                authModal.style.display = 'none';
+                appContent.style.display = 'flex';
+                console.log('用户已登录:', session.user.email);
+                addBubble(`🎉 登录成功，${session.user.email}！现在可以开始记账了。`, 'ai');
+            } else {
+                authModal.style.display = 'flex';
+                appContent.style.display = 'none';
+            }
+        });
+
+        async function signInWithProvider(provider) {
+            const { error } = await supabase.auth.signInWithOAuth({
+                provider: provider,
+                options: { redirectTo: window.location.origin }
+            });
+            if (error) console.error('OAuth 登录失败:', error);
+        }
+
+        async function signInWithEmail() {
+            const email = document.getElementById('email-input').value.trim();
+            if (!email) return alert('请输入有效的邮箱');
+            const { error } = await supabase.auth.signInWithOtp({ 
+                email: email, 
+                options: { emailRedirectTo: window.location.origin }
+            });
+
+            if (!error) {
+                emailMessage.textContent = 'Code (Magic Link) 已发送，请检查收件箱！';
+                emailMessage.style.display = 'block';
+            } else {
+                console.error('Magic Link 发送失败:', error);
+                emailMessage.textContent = '发送失败，请检查控制台错误！';
+                emailMessage.style.display = 'block';
+            }
+        }
+        
+        // ----------------------------------------------------------------------
+        // 4. AI 模拟与数据库保存逻辑
+        // ----------------------------------------------------------------------
+        function mockAIParse(text) {
+            let amount = 0;
+            let is_income = text.includes('收') || text.includes('收到') || text.includes('尾款');
+            let category = '管理费用'; 
+            let is_outstanding = text.includes('欠') || text.includes('没给钱') || text.includes('挂账');
+            let counterparty = null;
+            const amountMatch = text.match(/(\d+)/);
+            if (amountMatch) amount = parseFloat(amountMatch[0]);
+            if (text.includes('加油')) category = '交通/汽车费';
+            if (text.includes('老李')) counterparty = '老李';
+            if (text.includes('尾款') || text.includes('收到')) category = '主营业务收入';
+            return { amount, is_income, category, is_outstanding, counterparty, input_text: text };
+        }
+
+        async function saveTransactionToSupabase(data) {
+            const user = (await supabase.auth.getSession()).data.session?.user;
+            if (!user) {
+                addBubble('🔒 无法记账：请先登录！', 'ai');
+                return false;
+            }
+
+            const { error } = await supabase
+                .from('transactions')
+                .insert({
+                    user_id: user.id, // 使用真实的登录用户ID
+                    amount: data.amount,
+                    is_income: data.is_income,
+                    category: data.category,
+                    input_text: data.input_text,
+                    is_outstanding: data.is_outstanding,
+                    counterparty: data.counterparty
+                });
+                
+            if (error) {
+                console.error('保存到数据库失败:', error);
+                addBubble('⚠️ 数据保存失败。', 'ai');
+                return false;
+            }
+            return true;
+        }
+
+        async function sendMessage() {
+            const text = userInput.value.trim();
+            if (!text) return;
+
+            // 检查登录状态
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) {
+                addBubble('🔒 请先登录才能记账。', 'ai');
+                return;
+            }
+
+            addBubble(text, 'user');
+            userInput.value = '';
+            
+            const transactionData = mockAIParse(text);
+            if (transactionData.amount === 0) {
+                addBubble('没听清金额，请再试一次。', 'ai');
+                return;
+            }
+
+            const success = await saveTransactionToSupabase(transactionData);
+            
+            if (success) {
+                const typeText = transactionData.is_income ? '收入' : '支出';
+                const status = transactionData.is_outstanding ? ' (已挂账)' : '';
+                addBubble(`收到。记了一笔${typeText}：${transactionData.amount}元 (科目：${transactionData.category})${status}。`, 'ai');
+                setTimeout(() => switchTab('dashboard'), 300); 
+            }
+        }
+
+        // ----------------------------------------------------------------------
+        // 5. UI/Chart 渲染功能
+        // ----------------------------------------------------------------------
+        function renderChart() {
+            const ctx = document.getElementById('mainChart').getContext('2d');
+            if(myChart) myChart.destroy();
+            myChart = new Chart(ctx, { /* ... Chart Data ... */ }); // Simplified for space
+        }
+        
+        // 确保一开始显示聊天页面
+        window.onload = () => {
+            // 确保在加载时执行一次 switchTab，否则导航栏不会高亮
+            switchTab('chat');
+        };
+
+        // ----------------------------------------------------------------------
+        // 6. 登出按钮 (为完整性添加)
+        // ----------------------------------------------------------------------
+        async function signOut() {
+            const { error } = await supabase.auth.signOut();
+            if (!error) console.log("Logged out successfully");
+            else console.error("Logout error", error);
+        }
+    </script>
+</body>
+</html>
