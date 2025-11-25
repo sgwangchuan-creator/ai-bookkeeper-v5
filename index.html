@@ -146,6 +146,17 @@
                      storageKey: 'ai-bookkeeper-v5' 
                   }
                 });
+
+        // --- 缺失的辅助函数：用于显示聊天气泡 ---
+        function addBubble(html, type) {
+    const div = document.createElement('div');
+    // 根据 type (user/ai) 设置气泡样式
+    div.className = `msg-bubble msg-${type}`; 
+    div.innerHTML = html;
+    chatBox.appendChild(div);
+    // 滚动到最新消息
+    chatBox.scrollTop = chatBox.scrollHeight; 
+}
         // ----------------------------------------------------------------------
         // 2. 核心 UI 元素
         // ----------------------------------------------------------------------
