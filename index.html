@@ -140,7 +140,8 @@
         // ----------------------------------------------------------------------
         const SUPABASE_URL = 'https://klvannmoowmntgidpawb.supabase.co'; 
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtsdmFubm1vb3dtbnRnaWRwYXdiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQwMjk3NjksImV4cCI6MjA3OTYwNTc2OX0.pJle8L6Jl_4K-HgnYZ7TlhvZ_Csht91JesNRQjiQnDg'; 
-        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        // 明确告知 JS 引擎：调用 window 对象下的全局 supabase 对象
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         
         // ----------------------------------------------------------------------
         // 2. 核心 UI 元素
