@@ -147,7 +147,31 @@
                   }
                 });
 
-        // --- 缺失的辅助函数：用于显示聊天气泡 ---
+        // --- 核心 UI 切换函数 (请确保以下代码在你的 <script> 块中) ---
+function switchTab(tab) {
+    document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+    
+    document.getElementById(`page-${tab}`).classList.add('active');
+    
+    // 高亮底部导航栏图标
+    const navs = ['chat', 'dashboard', 'pro'];
+    document.querySelectorAll('.nav-item')[navs.indexOf(tab)].classList.add('active');
+
+    // 如果切换到看板，则渲染图表
+    if(tab === 'dashboard' && typeof renderChart === 'function') renderChart();
+}
+
+// --- 辅助的图表渲染函数 (也可能是你遗漏的) ---
+function renderChart() {
+    const ctx = document.getElementById('mainChart').getContext('2d');
+    if(myChart) myChart.destroy();
+    // 简化 Chart.js 实例化，确保函数存在
+    myChart = new Chart(ctx, { type: 'line', data: { /* ... */ }, options: { /* ... */ } }); 
+}
+        
+        
+                // --- 缺失的辅助函数：用于显示聊天气泡 ---
         function addBubble(html, type) {
     const div = document.createElement('div');
     // 根据 type (user/ai) 设置气泡样式
@@ -156,6 +180,7 @@
     chatBox.appendChild(div);
     // 滚动到最新消息
     chatBox.scrollTop = chatBox.scrollHeight; 
+
 }
         // ----------------------------------------------------------------------
         // 2. 核心 UI 元素
@@ -239,38 +264,50 @@
     }
     return true;
 }
+// 核心发送函数：呼叫部署到云端的 AI 代理
+async function sendMessage() {
+    const text = userInput.value.trim();
+    if (!text) return;
 
+    addBubble(text, 'user');
+    userInput.value = '';
+
+    addBubble('⌛ AI 会计正在处理中...', 'ai'); 
+
+    try {
+        // 💥 核心步骤：呼叫部署好的 Edge Function
+        const { data, error } = await supabase.functions.invoke('ai-parser', {
+            body: { text: text },
+        });
+
+        if (error) throw new Error(error.message);
+        
+        // 确保 data 是 JSON 格式
+        const transactionData = JSON.parse(data);
+
+        // 存入数据库
+        const success = await saveTransactionToSupabase(transactionData);
+        
+        // 给出反馈
+        if (success) {
+            // 移除 "处理中" 提示
+            chatBox.lastChild.remove(); 
+            const typeText = transactionData.is_income ? '收入' : '支出';
+            const status = transactionData.is_outstanding ? ' (已挂账)' : '';
+            addBubble(`收到。记了一笔${typeText}：${transactionData.amount}元 (科目：${transactionData.category})${status}。`, 'ai');
+            
+            setTimeout(() => switchTab('dashboard'), 300); 
+        }
+
+    } catch (e) {
+        chatBox.lastChild.remove();
+        console.error('AI 解析失败或网络错误:', e);
+        addBubble(`❌ 错误：AI 解析失败。请检查 Edge Function 日志。`, 'ai');
+    }
+}
         
 
-        async function sendMessage() {
-            const text = userInput.value.trim();
-            if (!text) return;
-
-            // 检查登录状态
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) {
-                addBubble('🔒 请先登录才能记账。', 'ai');
-                return;
-            }
-
-            addBubble(text, 'user');
-            userInput.value = '';
-            
-            const transactionData = mockAIParse(text);
-            if (transactionData.amount === 0) {
-                addBubble('没听清金额，请再试一次。', 'ai');
-                return;
-            }
-
-            const success = await saveTransactionToSupabase(transactionData);
-            
-            if (success) {
-                const typeText = transactionData.is_income ? '收入' : '支出';
-                const status = transactionData.is_outstanding ? ' (已挂账)' : '';
-                addBubble(`收到。记了一笔${typeText}：${transactionData.amount}元 (科目：${transactionData.category})${status}。`, 'ai');
-                setTimeout(() => switchTab('dashboard'), 300); 
-            }
-        }
+        
 
         // ----------------------------------------------------------------------
         // 5. UI/Chart 渲染功能
